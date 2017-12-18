@@ -177,7 +177,7 @@ settings = {
 	'trainer-level-variance': 0.077,
 	'wild-level-multiplier': 1.5,
 	'trainer-level-multiplier': 2.0,
-	'trainer-strength-variance': 0.11,
+	'trainer-strength-variance': 0.12,
 }
 
 romImage = None
@@ -187,6 +187,9 @@ wildMonAddr = 0xd0dd
 wildMonEnd = 0xd5c6
 trainerMonAddr = 0x39d99
 trainerMonEnd = 0x3a52d
+fishingMonAddr = 0xe97d
+fishingMonEnd = 0xe9c4
+
 
 def getRandomPokemon(mean, variance, rarityModifier=0):
 	for _ in range(100):
@@ -199,6 +202,7 @@ def getRandomPokemon(mean, variance, rarityModifier=0):
 	print('failed to get pokemon in range')
 	return 0x15 # MEW
 
+
 def getRandomLevel(mean, variance):
 	for _ in range(100):
 		level = int(round(numpy.random.normal(1, variance) * mean))
@@ -208,12 +212,14 @@ def getRandomLevel(mean, variance):
 	print('failed to get level in range')
 	return 254
 
+
 def getStrengthIndex(id):
 	for i in range(0, len(pokemonByStatTotal)):
 		if pokemonByStatTotal[i][0] == id:
 			return i
 	print(ERROR)
 	return None
+
 
 def randomizeWildPokemon():
 	if not romImage:
@@ -254,6 +260,7 @@ def randomizeWildPokemon():
 
 		byteIndex += 1
 
+
 def randomizeTrainerPokemon():
 	if not romImage:
 		return
@@ -267,7 +274,7 @@ def randomizeTrainerPokemon():
 		if romImage[byteIndex] == 0x00:
 			nextType = 'head'
 		elif nextType == 'head':
-			if romImage[byteIndex] == 0xff:
+			if romImage[byteIndex] == 0xff:   
 				uniformLevel = False
 				nextType = 'level'
 			else:
@@ -285,21 +292,52 @@ def randomizeTrainerPokemon():
 			nextType = 'pokemon'
 		elif nextType == 'pokemon':
 			boop = getStrengthIndex(romImage[byteIndex])
-			romImage[byteIndex] = getRandomPokemon(boop + 10, settings['trainer-strength-variance'])
+			romImage[byteIndex] = getRandomPokemon(boop + 15, settings['trainer-strength-variance'])
 			if uniformLevel:
 				nextType = 'pokemon'
 			else:
 				nextType = 'level'
 		else:
 			print('error')
+
 		byteIndex += 1
+
 		
+def randomizeFishingPokemon():
+	if not romImage:
+		return
+
+	nextType = 'head'
+	monCount = 0
+	byteIndex = fishingMonAddr
+	while byteIndex != fishingMonEnd:
+		print('{}: {}'.format(hex(byteIndex), hex(romImage[byteIndex])))
+		if nextType == 'head':
+			monCount = romImage[byteIndex]
+			nextType = 'level'
+		elif nextType == 'level':
+			meanLevel = romImage[byteIndex] * settings['wild-level-multiplier']
+			romImage[byteIndex] = getRandomLevel(meanLevel, settings['level-variance'] * 3)
+			nextType = 'pokemon'
+		elif nextType == 'pokemon':
+			boop = getStrengthIndex(romImage[byteIndex])
+			romImage[byteIndex] = getRandomPokemon(boop, settings['strength-variance'] * 3)
+			monCount -= 1
+			if monCount == 0:
+				nextType = 'head'
+			else:
+				nextType = 'level'
+
+
+		byteIndex += 1
+
 
 def main():
 	readDataFromFile()
 
 	randomizeWildPokemon()
 	randomizeTrainerPokemon()
+	randomizeFishingPokemon()
 
 	writeToFile()
 
