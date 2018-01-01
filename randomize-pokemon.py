@@ -4,7 +4,7 @@ import re
 import random
 import sys
 
-pokemonByStatTotal = (
+pokemonByStatTotal = [
 	(0x7b, 0, 'CATERPIE'),
 	(0x70, 0, 'WEEDLE'),
 	(0x85, 2, 'MAGIKARP'),
@@ -16,7 +16,7 @@ pokemonByStatTotal = (
 	(0x05, 0, 'SPEAROW'),
 	(0x3b, 0, 'DIGLETT'),
 	(0x64, 2, 'JIGGLYPUFF'),
-	(0x0f, 1, 'NIDORAN_F'),
+	(0x0f, 0, 'NIDORAN_F'),
 	(0x03, 2, 'NIDORAN_M'),
 	(0x6d, 0, 'PARAS'),
 	(0x6c, 0, 'EKANS'),
@@ -36,11 +36,11 @@ pokemonByStatTotal = (
 	(0xb0, 2, 'CHARMANDER'),
 	(0x94, 1, 'ABRA'),
 	(0x46, 1, 'DODUO'),
-	(0x19, 0, 'GASTLY'),
+	(0x19, 1, 'GASTLY'),
 	(0xb1, 2, 'SQUIRTLE'),
 	(0x25, 1, 'SLOWPOKE'),
 	(0x99, 2, 'BULBASAUR'),
-	(0x54, 1, 'PIKACHU'),
+	(0x54, 0, 'PIKACHU'),
 	(0xb9, 0, 'ODDISH'),
 	(0x2f, 1, 'PSYDUCK'),
 	(0x11, 0, 'CUBONE'),
@@ -156,7 +156,7 @@ pokemonByStatTotal = (
 	(0x42, 1, 'DRAGONITE'),
 	(0x15, 2, 'MEW'),
 	(0x83, 2, 'MEWTWO')
-)
+]
 
 encounterChances = (
 	51./51., #51/256
@@ -168,28 +168,31 @@ encounterChances = (
 	51./13., #13/256
 	51./13., #13/256
 	51./11., #11/256
-	51./6.   #03/256
+	51./7.2  #03/256
 )
 
 settings = {
-	'strength-variance': 0.08,
-	'level-variance': 0.09,
-	'trainer-level-variance': 0.077,
+	'strength-variance': 0.12,
+	'level-variance': 0.07,
+	'trainer-level-variance': 0.05,
 	'wild-level-multiplier': 1.5,
-	'trainer-level-multiplier': 2.0,
-	'trainer-strength-variance': 0.12,
+	'trainer-level-multiplier': 2.3,
+	'trainer-strength-variance': 0.08
 }
+
+
+slotBonuses = (0, 2, 9, 21, 37)
+rerollChances = (0, 0.1, 0.9, 1.3, 1.8)
 
 romImage = None
 targetFile = sys.argv[1]
-outFile = 'randomized.gbc'
+outFile = 'pkrnd.gbc'
 wildMonAddr = 0xd0dd
 wildMonEnd = 0xd5c6
 trainerMonAddr = 0x39d99
 trainerMonEnd = 0x3a52d
 fishingMonAddr = 0xe97d
 fishingMonEnd = 0xe9c4
-
 
 def getRandomPokemon(mean, variance, rarityModifier=0):
 	for _ in range(100):
@@ -207,7 +210,7 @@ def getRandomLevel(mean, variance):
 	for _ in range(100):
 		level = int(round(numpy.random.normal(1, variance) * mean))
 		if level >= 2 and level <= 254:
-			print(level)
+			#print(level)
 			return level
 	print('failed to get level in range')
 	return 254
@@ -228,6 +231,7 @@ def randomizeWildPokemon():
 	nextType = 'head'
 	slotIndex = 0
 	byteIndex = wildMonAddr
+	zonePokemon = []
 
 	while byteIndex != wildMonEnd:
 		#print('{}: {}, {}'.format(hex(byteIndex), romImage[byteIndex], slotIndex))
@@ -240,25 +244,43 @@ def randomizeWildPokemon():
 			nextType = 'head'
 			slotIndex = 0
 		elif nextType == 'head':
+			zonePool = generateWildPool((romImage[byteIndex + 1] / 50) * len(pokemonByStatTotal) - 15 + random.randint(-8, 8))
 			nextType = 'level'
 		elif nextType == 'level':
-			levelMultiplier = settings['wild-level-multiplier'] + (slotMod - 1) / 15
+			levelMultiplier = settings['wild-level-multiplier'] + (slotMod - 1) / 20
 			meanLevel = romImage[byteIndex] * levelMultiplier
 			varianceMultiplier = 1 + (slotMod - 1) / 15
 			romImage[byteIndex] = getRandomLevel(meanLevel, settings['level-variance'] * varianceMultiplier)
+			zonePokemon
 			nextType = 'pokemon'
 		elif nextType == 'pokemon':
-			slotMod = encounterChances[slotIndex]
-			strengthBonus = 4 * (slotMod) - 1
-			variance = settings['strength-variance'] * varianceMultiplier * (1 + (slotMod - 1) / 30)
-			boop = getStrengthIndex(romImage[byteIndex])
-			romImage[byteIndex] = getRandomPokemon(boop + strengthBonus, variance, 1 / slotMod)
+			for _ in range(100):
+				poolIndex = random.randrange(0, len(zonePool))
+				if random.random() > rerollChances[poolIndex] / slotMod:
+					break
+			
+			romImage[byteIndex] = zonePool[poolIndex]
+			print("<{}>".format(poolIndex))
+
 			slotIndex += 1
 			nextType = 'level'
 		else:
 			print('error')
 
 		byteIndex += 1
+
+		def generateWildPool(averageStrength):
+			pool = []
+			for mod in slotBonuses:
+				for _ in range(100):
+					poke = getRandomPokemon(averageStrength + mod, settings['strength-variance'], 1 - mod/50)
+					if poke not in pool:
+						pool.append(poke)
+						break
+
+
+
+			return pool
 
 
 def randomizeTrainerPokemon():
@@ -278,21 +300,21 @@ def randomizeTrainerPokemon():
 				uniformLevel = False
 				nextType = 'level'
 			else:
-				newLevel = (romImage[byteIndex] - 7) * settings['trainer-level-multiplier']
+				newLevel = (romImage[byteIndex] - 8) * settings['trainer-level-multiplier']
 				if newLevel < romImage[byteIndex]:
 					newLevel = romImage[byteIndex]
 				romImage[byteIndex] = getRandomLevel(newLevel, settings['trainer-level-variance'])
 				uniformLevel = True
 				nextType = 'pokemon'
 		elif nextType == 'level':
-			newLevel = (romImage[byteIndex] - 7) * settings['trainer-level-multiplier']
+			newLevel = (romImage[byteIndex] - 8) * settings['trainer-level-multiplier']
 			if newLevel < romImage[byteIndex]:
 				newLevel = romImage[byteIndex]
 			romImage[byteIndex] = getRandomLevel(newLevel, settings['trainer-level-variance'])
 			nextType = 'pokemon'
 		elif nextType == 'pokemon':
 			boop = getStrengthIndex(romImage[byteIndex])
-			romImage[byteIndex] = getRandomPokemon(boop + 15, settings['trainer-strength-variance'])
+			romImage[byteIndex] = getRandomPokemon(boop + 12 + random.randint(-4, 4), settings['trainer-strength-variance'])
 			if uniformLevel:
 				nextType = 'pokemon'
 			else:
@@ -311,7 +333,7 @@ def randomizeFishingPokemon():
 	monCount = 0
 	byteIndex = fishingMonAddr
 	while byteIndex != fishingMonEnd:
-		print('{}: {}'.format(hex(byteIndex), hex(romImage[byteIndex])))
+		#print('{}: {}'.format(hex(byteIndex), hex(romImage[byteIndex])))
 		if nextType == 'head':
 			monCount = romImage[byteIndex]
 			nextType = 'level'
